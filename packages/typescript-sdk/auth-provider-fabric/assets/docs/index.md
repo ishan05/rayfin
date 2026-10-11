@@ -197,6 +197,20 @@ Errors do not include the supplied token or raw server response.
 `AUTH_FAILED` and `INSUFFICIENT_PERMISSIONS` alone do not identify an administrator block.
 Do not infer that cause from response text.
 
+When the service explicitly reports an administrator block, the helper rejects with `AuthError`, `code: 'ArtifactBlockedByAdmin'`, and `status: 403`.
+Its message is always: "This app has been blocked by your admin. Reach out to the app owner to get unblocked."
+An optional `requestId` contains only a validated service correlation GUID; missing or invalid correlation is omitted.
+The SDK does not copy the service's message or other diagnostic fields.
+
+Recognition requires an HTTP 403 JSON response with the exact root `code`; an optional `httpStatusCode` must also be `403`.
+Failure-body inspection is limited to 16 KiB and one second, or the request timeout if shorter.
+Unrecognized, malformed, oversized, or unreadable responses keep the generic failure behavior.
+Successful token payloads are read only for authentication, not for error diagnostics.
+
+An administrator-block rejection does not refresh credentials, retry the rejected request, or discard an existing session.
+Session resume surfaces this rejection instead of continuing to a popup login, and refresh backoff preserves the same error code.
+The error reports a service rejection; it does not itself change access or unblock the app.
+
 ```typescript
 import { AuthError } from '@microsoft/rayfin-lib';
 
@@ -205,6 +219,9 @@ try {
 } catch (error) {
   if (error instanceof AuthError) {
     console.error(error.code, error.message);
+    if (error.code === 'ArtifactBlockedByAdmin' && error.requestId) {
+      console.error('Request ID', error.requestId);
+    }
   }
 }
 ```

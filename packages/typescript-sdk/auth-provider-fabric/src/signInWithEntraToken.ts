@@ -217,6 +217,7 @@ export async function signInWithEntraToken(
     );
   }
 
+  let responseError: AuthError | undefined;
   return runProviderSignIn(auth, async () => {
     let result: {
       status: number;
@@ -231,9 +232,8 @@ export async function signInWithEntraToken(
         async (response) => {
           const rejected = !response.ok || response.redirected;
           if (rejected) {
-            // Release unread streams without inspecting credential-bearing
-            // error bodies. Cancellation failures follow the sanitized
-            // transport-failure path, while the request timeout is still active.
+            // Other rejections stay unread. The transport handles only the
+            // bounded, recognized 403 contract before invoking this callback.
             await response.body?.cancel();
           }
           return {
@@ -244,7 +244,11 @@ export async function signInWithEntraToken(
           };
         }
       );
-    } catch {
+    } catch (error) {
+      responseError = client.getResponseAuthError(error);
+      if (responseError) {
+        throw responseError;
+      }
       throw exchangeError();
     }
     if (result.redirected) {
@@ -257,5 +261,10 @@ export async function signInWithEntraToken(
     return createSessionFromTokenResponse(auth, response, {
       persistBeforeCommit: true,
     });
-  }).catch(sanitizeSignInFailure);
+  }).catch((error: unknown) => {
+    if (responseError && error === responseError) {
+      throw responseError;
+    }
+    return sanitizeSignInFailure(error);
+  });
 }

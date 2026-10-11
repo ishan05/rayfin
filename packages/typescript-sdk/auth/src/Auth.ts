@@ -75,7 +75,11 @@ export class Auth {
   private refreshInFlight: Promise<TokenResponse> | null = null; // Promise lock for concurrent refresh prevention
   private providerSignInInFlight: Promise<unknown> | null = null;
   private skipPersistenceOnChange = false;
-  private lastRefreshFailure: { at: number; count: number } | null = null; // Backoff state for transient refresh failures
+  private lastRefreshFailure: {
+    at: number;
+    count: number;
+    responseError?: AuthError;
+  } | null = null;
   private storageEventListener: ((event: Event) => void) | null = null; // Storage event listener for multi-tab sync
   private storageEventSeq = 0; // Sequence counter — discards stale async validateAccessToken results
   private boundHandleVisibilityChange: (() => void) | null = null; // Bound handler for visibilitychange
@@ -587,8 +591,16 @@ export class Auth {
       );
     }
 
+    let responseError: AuthError | undefined;
     try {
-      const response = await this.authApi.signIn(credentials);
+      const response = await this.authApi
+        .signIn(credentials)
+        .catch((error: unknown) => {
+          responseError = this.authApi
+            .getClientForProvider()
+            .getResponseAuthError(error);
+          throw responseError ?? error;
+        });
 
       if (response.accessToken) {
         // Calculate expiresAt from expiresIn (seconds)
@@ -616,8 +628,21 @@ export class Auth {
 
       return response;
     } catch (error: any) {
-      // Clear session on signin failure
+      if (responseError && error === responseError) {
+        throw responseError;
+      }
+      // Preserve a session on service access denial, not other signin failures.
       await this.clearInternalSession();
+
+      if (
+        error instanceof SdkError &&
+        error.code === 'ArtifactBlockedByAdmin'
+      ) {
+        throw new SdkError(
+          'An unexpected error occurred during signin.',
+          'UNKNOWN_SIGNIN_ERROR'
+        );
+      }
 
       // Re-throw specific SDK errors
       if (
@@ -948,6 +973,9 @@ export class Auth {
         Auth.REFRESH_BACKOFF_MAX_MS
       );
       if (elapsed < backoffMs) {
+        if (this.lastRefreshFailure.responseError) {
+          throw this.lastRefreshFailure.responseError;
+        }
         throw new AuthError(
           'Refresh temporarily unavailable, try again later.',
           'REFRESH_BACKOFF'
@@ -1023,9 +1051,17 @@ export class Auth {
       throw new AuthError('No active session to refresh.', 'NO_SESSION');
     }
 
+    let responseError: AuthError | undefined;
     try {
       // Make refresh token grant request
-      const response = await this.authApi.refreshToken(currentRefreshToken);
+      const response = await this.authApi
+        .refreshToken(currentRefreshToken)
+        .catch((error: unknown) => {
+          responseError = this.authApi
+            .getClientForProvider()
+            .getResponseAuthError(error);
+          throw responseError ?? error;
+        });
 
       // Update session with new tokens
       if (response.accessToken) {
@@ -1080,11 +1116,24 @@ export class Auth {
           'SESSION_EXPIRED'
         );
       }
-      // Transient error (5xx, network blip, etc.) — record for backoff
+      // Back off without replacing a recognized service rejection's code.
       const prevCount = this.lastRefreshFailure?.count ?? 0;
-      this.lastRefreshFailure = { at: Date.now(), count: prevCount + 1 };
+      this.lastRefreshFailure = {
+        at: Date.now(),
+        count: prevCount + 1,
+        responseError,
+      };
+      if (
+        !responseError &&
+        error instanceof SdkError &&
+        error.code === 'ArtifactBlockedByAdmin'
+      ) {
+        throw new SdkError(
+          'An unexpected error occurred during token refresh.'
+        );
+      }
       // Re-throw other errors (network issues, server errors, etc.)
-      throw error;
+      throw responseError ?? error;
     }
   }
 
