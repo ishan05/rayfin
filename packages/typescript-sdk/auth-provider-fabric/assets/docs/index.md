@@ -194,6 +194,8 @@ Common cases include missing required options, blocked popups, explicit broker e
 Direct token sign-in reports `INVALID_REQUEST` for invalid local inputs, `EXCHANGE_NOT_ENABLED` for a disabled exchange, `AUTH_FAILED` for token rejection, `INSUFFICIENT_PERMISSIONS` for missing Execute access, and `NOT_AVAILABLE` for an unavailable endpoint.
 Transport or other HTTP failures use `TOKEN_EXCHANGE_FAILED`; malformed successful responses use `INVALID_TOKEN_RESPONSE`.
 Errors do not include the supplied token or raw server response.
+`AUTH_FAILED` and `INSUFFICIENT_PERMISSIONS` alone do not identify an administrator block.
+Do not infer that cause from response text.
 
 ```typescript
 import { AuthError } from '@microsoft/rayfin-lib';
