@@ -165,11 +165,7 @@ export class Auth {
 
     // Attach automatic refresh callback for 401 handling
     if (this.autoRefreshToken) {
-      this.authApi.setRefreshCallback(async () => {
-        if (this.hasRefreshToken()) {
-          await this.refreshSession();
-        }
-      });
+      this.attachRefreshToClient(apiClient);
     }
 
     // Restore synchronously when storage is synchronous (browser localStorage)
@@ -242,6 +238,7 @@ export class Auth {
 
     this.internalSession = stored;
     this.refreshToken = stored.refreshToken ?? null;
+    this.lastRefreshFailure = null;
 
     if (isExpired) {
       // Withhold the stale token; the eager refresh at the end of init replaces
@@ -468,6 +465,7 @@ export class Auth {
         this.internalSession = session;
         this.accessToken = session.accessToken;
         this.refreshToken = session.refreshToken ?? null;
+        this.lastRefreshFailure = null;
 
         // Just emit refresh event to notify application of the token change
         this.emitAuthEvent('AUTH_REFRESH');
@@ -617,6 +615,7 @@ export class Auth {
         };
         this.accessToken = response.accessToken;
         this.refreshToken = response.refreshToken ?? null;
+        this.lastRefreshFailure = null;
 
         // Schedule session expiration timer
         this.scheduleSessionExpiration(expiresAt);
@@ -877,11 +876,11 @@ export class Auth {
       // Explicit replacement must not report success before persistence, or
       // discard the prior in-memory session if storage rejects the new one.
       await this.setInternalSessionToStorage(session);
-      this.lastRefreshFailure = null;
     }
     this.internalSession = session;
     this.accessToken = tokenResponse.accessToken;
     this.refreshToken = tokenResponse.refreshToken ?? null;
+    this.lastRefreshFailure = null;
 
     this.scheduleSessionExpiration(expiresAt);
     // Do not enqueue a duplicate asynchronous write when this session has
@@ -1146,16 +1145,31 @@ export class Auth {
    */
   public attachToClient(client: ApiClient): void {
     client.setAccessTokenCallback(() => this.accessToken);
-    client.setRefreshCallback(async () => {
-      if (this.hasRefreshToken()) {
-        await this.refreshSession();
-      }
-    });
+    this.attachRefreshToClient(client);
     // If the retry after refresh also returns 401, the fresh AT was rejected
     // by the server — sign out so the user can re-authenticate.
     client.setAuthExhaustedCallback(() => {
       this.clearInternalSession();
     });
+  }
+
+  private attachRefreshToClient(client: ApiClient): void {
+    client.setAuthRefreshCallback(
+      async () => {
+        if (this.hasRefreshToken()) {
+          await this.refreshSession();
+        }
+      },
+      (error) => this.getRefreshResponseError(error)
+    );
+  }
+
+  /** @internal Recognizes only this session's current refresh failure or backoff. */
+  public getRefreshResponseError(error: unknown): AuthError | undefined {
+    const current = this.lastRefreshFailure?.responseError;
+    return current && error === current
+      ? this.authApi.getClientForProvider().getResponseAuthError(current)
+      : undefined;
   }
 
   /**
@@ -2335,6 +2349,7 @@ export class Auth {
         };
         this.accessToken = response.accessToken;
         this.refreshToken = response.refreshToken ?? null;
+        this.lastRefreshFailure = null;
 
         // Schedule session expiration timer
         this.scheduleSessionExpiration(expiresAt);

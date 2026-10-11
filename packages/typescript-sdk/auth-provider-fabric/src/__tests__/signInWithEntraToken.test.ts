@@ -246,7 +246,11 @@ describe('signInWithEntraToken: public entry in Node', () => {
       expect(error).toMatchObject({ code });
       expect(String(error)).not.toContain('SECRET');
       expect(read).not.toHaveBeenCalled();
-      expect(cancel).toHaveBeenCalledExactlyOnceWith();
+      if (Number(status) === 403) {
+        expect(cancel).not.toHaveBeenCalled();
+      } else {
+        expect(cancel).toHaveBeenCalledExactlyOnceWith();
+      }
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(refresh).not.toHaveBeenCalled();
       expect(login).not.toHaveBeenCalled();

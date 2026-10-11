@@ -1,6 +1,6 @@
 import { isEmbeddedMode as sharedIsEmbeddedMode } from '@microsoft/fabric-embedded-host';
 import type { Auth, OpaqueSession } from '@microsoft/rayfin-auth';
-import { getAuthProviderClient } from '@microsoft/rayfin-auth/_internal';
+import { getRefreshResponseError } from '@microsoft/rayfin-auth/_internal';
 import { AuthError } from '@microsoft/rayfin-lib';
 
 import type { FabricAuthOptions } from './types';
@@ -91,8 +91,7 @@ export async function tryResumeSession(
         error instanceof AuthError &&
         error.code === 'ArtifactBlockedByAdmin'
       ) {
-        const responseError =
-          getAuthProviderClient(auth).getResponseAuthError(error);
+        const responseError = getRefreshResponseError(auth, error);
         if (responseError) {
           throw responseError;
         }

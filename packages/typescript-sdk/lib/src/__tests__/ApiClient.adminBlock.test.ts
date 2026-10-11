@@ -279,6 +279,61 @@ describe('ApiClient administrator-block responses', () => {
     expect(client.getResponseAuthError(replay)).toBeUndefined();
   });
 
+  it.each([undefined, 'SYNTHETIC_BLOCK'])(
+    'rejects a registered fetch error after its code was changed to %j',
+    async (changedCode) => {
+      const { client, fetch } = setup(Response.json(body(), { status: 403 }));
+      const prior = await client
+        .get('/resource')
+        .catch((error: unknown) => error);
+      if (!(prior instanceof NetworkError)) {
+        throw new Error('Expected a response-produced NetworkError');
+      }
+      prior.code = changedCode;
+      prior.message = secret;
+      fetch.mockRejectedValueOnce(prior);
+
+      const replay = await client
+        .get('/resource')
+        .catch((error: unknown) => error);
+
+      expect(replay).not.toBe(prior);
+      expect(replay).not.toHaveProperty('requestId');
+      expect(client.getResponseAuthError(replay)).toBeUndefined();
+      expect(String(replay)).not.toContain(secret);
+    }
+  );
+
+  it.each(['configuration', 'setter'] as const)(
+    'rejects a foreign historical response error thrown by a custom refresh %s',
+    async (registration) => {
+      const source = setup(Response.json(body(), { status: 403 }));
+      const historical = await source.client
+        .get('/source')
+        .catch((error: unknown) => error);
+      expect(historical).toMatchObject({ code, requestId });
+      const { client, fetch, onRefreshNeeded, onAuthExhausted } = setup(
+        new Response(null, { status: 401 })
+      );
+      if (registration === 'setter') {
+        client.setRefreshCallback(onRefreshNeeded);
+      }
+      onRefreshNeeded.mockRejectedValueOnce(historical);
+
+      const error = await client
+        .get('/resource')
+        .catch((error: unknown) => error);
+
+      expect(error).not.toBe(historical);
+      expect(error).not.toHaveProperty('code', code);
+      expect(error).not.toHaveProperty('requestId');
+      expect(client.getResponseAuthError(error)).toBeUndefined();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(onRefreshNeeded).toHaveBeenCalledTimes(1);
+      expect(onAuthExhausted).not.toHaveBeenCalled();
+    }
+  );
+
   it('does not trust a caller refresh callback that throws the reserved code', async () => {
     const { client, fetch, onRefreshNeeded, onAuthExhausted } = setup(
       new Response(null, { status: 401 })

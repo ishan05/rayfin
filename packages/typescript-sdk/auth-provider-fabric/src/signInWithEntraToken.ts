@@ -231,9 +231,9 @@ export async function signInWithEntraToken(
         { Authorization: `Bearer ${token}` },
         async (response) => {
           const rejected = !response.ok || response.redirected;
-          if (rejected) {
-            // Other rejections stay unread. The transport handles only the
-            // bounded, recognized 403 contract before invoking this callback.
+          if (rejected && (response.status !== 403 || response.redirected)) {
+            // The transport already consumed or cancelled non-redirected 403s.
+            // Other rejected responses remain unread.
             await response.body?.cancel();
           }
           return {

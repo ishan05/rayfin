@@ -287,6 +287,9 @@ export class ApiClient {
   private defaultTimeout: number;
   private getAccessTokenCallback: (() => string | null) | undefined;
   private onRefreshNeededCallback: (() => Promise<void>) | undefined;
+  private refreshResponseError:
+    | ((error: unknown) => AuthError | undefined)
+    | undefined;
   private onAuthExhaustedCallback: (() => void) | undefined;
   private fetchImplementation: Promise<typeof globalThis.fetch>;
 
@@ -368,6 +371,16 @@ export class ApiClient {
    */
   public setRefreshCallback(callback: () => Promise<void>): void {
     this.onRefreshNeededCallback = callback;
+    this.refreshResponseError = undefined;
+  }
+
+  /** @internal Grants response-error mapping only to an Auth-owned refresh operation. */
+  public setAuthRefreshCallback(
+    callback: () => Promise<void>,
+    responseError: (error: unknown) => AuthError | undefined
+  ): void {
+    this.setRefreshCallback(callback);
+    this.refreshResponseError = responseError;
   }
 
   /**
@@ -418,7 +431,10 @@ export class ApiClient {
       const fetchImpl = await this.fetchImplementation;
       return await fetchImpl(url, options);
     } catch (error) {
-      if (error instanceof SdkError && error.code === ARTIFACT_BLOCKED_CODE) {
+      if (
+        error instanceof SdkError &&
+        (responseAuthErrors.has(error) || error.code === ARTIFACT_BLOCKED_CODE)
+      ) {
         throw new NetworkError('Network request failed.');
       }
       throw error;
@@ -606,19 +622,25 @@ export class ApiClient {
     url: string,
     options: RequestOptions
   ): Promise<T> {
-    if (this.onRefreshNeededCallback) {
+    const refresh = this.onRefreshNeededCallback;
+    const currentResponseError = this.refreshResponseError;
+    if (refresh) {
       // Trigger refresh (includes promise lock for concurrent prevention).
       // Errors propagate directly so callers can distinguish fatal auth
       // failures (SESSION_EXPIRED, INVALID_GRANT) from transient issues
       // (SERVER_ERROR, network blip, REFRESH_BACKOFF).
       try {
-        await this.onRefreshNeededCallback();
+        await refresh();
       } catch (error) {
-        const responseError = this.getResponseAuthError(error);
+        const responseError = currentResponseError?.(error);
         if (responseError) {
           throw responseError;
         }
-        if (error instanceof SdkError && error.code === ARTIFACT_BLOCKED_CODE) {
+        if (
+          error instanceof SdkError &&
+          (responseAuthErrors.has(error) ||
+            error.code === ARTIFACT_BLOCKED_CODE)
+        ) {
           throw new NetworkError('Token refresh failed.');
         }
         throw error;

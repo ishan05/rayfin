@@ -209,6 +209,7 @@ Successful token payloads are read only for authentication, not for error diagno
 
 An administrator-block rejection does not refresh credentials, retry the rejected request, or discard an existing session.
 Session resume surfaces this rejection instead of continuing to a popup login, and refresh backoff preserves the same error code.
+Backoff belongs to the current session and is cleared when a replacement session is successfully installed.
 The error reports a service rejection; it does not itself change access or unblock the app.
 
 ```typescript

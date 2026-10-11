@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { createServer, type ServerResponse } from 'node:http';
 import { inspect } from 'node:util';
 
 import { Auth, type AuthStorage } from '@microsoft/rayfin-auth';
@@ -41,12 +42,13 @@ function denial() {
   };
 }
 
-function setup(storage: AuthStorage | false = false) {
+function setup(storage: AuthStorage | false = false, timeout?: number) {
   const fetch = vi.fn<typeof globalThis.fetch>();
   const client = new ApiClient({
     baseUrl: 'https://fabric.example/workload/backend',
     publishableKey: 'public-key',
     fetch,
+    timeout,
   });
   const auth = new Auth(client, { storage, autoRefreshToken: false });
   instances.push(auth);
@@ -300,6 +302,68 @@ describe('direct Entra administrator-block rejection', () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each(['truncated', 'request timeout'] as const)(
+    'preserves generic 403 after a native %s response body without cancelling it twice',
+    async (failure) => {
+      let outgoing: ServerResponse | undefined;
+      const server = createServer((_request, response) => {
+        outgoing = response;
+        response.writeHead(403, {
+          'Content-Type': 'application/json',
+          'Content-Length': '1024',
+        });
+        response.write(`{"message":"${privateText}`);
+        response.flushHeaders();
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, '127.0.0.1', resolve)
+      );
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('Expected a local TCP listener');
+        }
+        const { auth, fetch, refresh } = setup(false, 250);
+        let received: Response | undefined;
+        let cancel: ReturnType<typeof vi.spyOn> | undefined;
+        fetch.mockImplementationOnce(async (_url, options) => {
+          received = await globalThis.fetch(
+            `http://127.0.0.1:${address.port}`,
+            options
+          );
+          if (!received.body || !outgoing) {
+            throw new Error('Expected a native response body');
+          }
+          cancel = vi.spyOn(received.body, 'cancel');
+          if (failure === 'truncated') {
+            outgoing.destroy();
+          }
+          return received;
+        });
+
+        const error = await signIn(auth).catch((error: unknown) => error);
+
+        expect(received?.status).toBe(403);
+        expect(error).toMatchObject({ code: 'INSUFFICIENT_PERMISSIONS' });
+        expect(error).not.toHaveProperty('requestId');
+        expect(String(error)).not.toContain(privateText);
+        expect(cancel).not.toHaveBeenCalled();
+        expect(received?.body?.locked).toBe(false);
+        expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(
+          failure === 'request timeout'
+        );
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(refresh).not.toHaveBeenCalled();
+        expect(auth.getSession().isAuthenticated).toBe(false);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve()))
+        );
+      }
+    }
+  );
 });
 
 describe('session resume with an administrator-block rejection', () => {
@@ -343,6 +407,23 @@ describe('session resume with an administrator-block rejection', () => {
       new AuthError(privateText, code, 403, requestId)
     );
     await expect(tryResumeSession(auth)).resolves.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not surface a foreign historical rejection as this session resume result', async () => {
+    const source = setup();
+    source.fetch.mockResolvedValueOnce(
+      Response.json(denial(), { status: 403 })
+    );
+    const historical = await signIn(source.auth).catch(
+      (error: unknown) => error
+    );
+    expect(historical).toMatchObject({ code, requestId });
+    const { auth, fetch } = setup(expiredStorage());
+    vi.spyOn(auth, 'refreshSession').mockRejectedValueOnce(historical);
+
+    await expect(tryResumeSession(auth)).resolves.toBeNull();
+
     expect(fetch).not.toHaveBeenCalled();
   });
 });
