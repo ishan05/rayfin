@@ -1,4 +1,6 @@
+/** @internal Shared administrator-block code for SDK error boundaries. */
 export const ARTIFACT_BLOCKED_CODE = 'ArtifactBlockedByAdmin';
+/** @internal Fixed consumer message for SDK administrator-block errors. */
 export const ARTIFACT_BLOCKED_MESSAGE =
   'This app has been blocked by your admin. Reach out to the app owner to get unblocked.';
 
