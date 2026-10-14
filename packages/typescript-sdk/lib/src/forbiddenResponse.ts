@@ -46,6 +46,25 @@ export function artifactBlockDetails(
   return {};
 }
 
+/** @internal Recognizes only a bounded canonical administrator-block HTTP response. */
+export async function isArtifactBlockedResponse(
+  response: Response
+): Promise<boolean> {
+  if (response.ok || response.status !== 403 || response.redirected) {
+    return false;
+  }
+  try {
+    const value = await readForbiddenResponse(
+      response,
+      new AbortController().signal
+    );
+    return artifactBlockDetails(value) !== undefined;
+  } catch {
+    // Unavailable diagnostics must not replace the original HTTP failure.
+    return false;
+  }
+}
+
 export async function readForbiddenResponse(
   response: Response,
   signal: AbortSignal
