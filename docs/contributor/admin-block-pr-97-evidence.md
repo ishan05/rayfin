@@ -3,6 +3,12 @@
 This is the public before/after validation record for
 [microsoft/rayfin#97](https://github.com/microsoft/rayfin/pull/97).
 
+## Final validation stack
+
+The final live matrix excluded FabricAppDev-UX PR 1124779 completely. Its
+worktree was at the base commit, and no UX source or package was built or
+deployed. The exercised path was Shared, WCL, BaaS, and Rayfin.
+
 ## Two-commit delivery
 
 - [`a729bbc7dbe7456be1b2b90f3a9115250092686d`](https://github.com/microsoft/rayfin/commit/a729bbc7dbe7456be1b2b90f3a9115250092686d)
@@ -49,7 +55,7 @@ for `Testuser1`, and the protected GraphQL read returned HTTP 200.
 ## Validation
 
 - 336 changed Rayfin tests passed.
-- The coordinated Shared, WCL, BaaS, UI, and research harness focused suites
-  passed.
+- The coordinated Shared, WCL, BaaS, Rayfin, and 76-test research harness
+  focused suites passed without FabricAppDev-UX.
 - The live runtime and test fixture were restored to their original unblocked
   state after capture.
