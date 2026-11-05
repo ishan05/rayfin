@@ -19,7 +19,7 @@ deployed. The exercised path was Shared, WCL, BaaS, and Rayfin.
 
 ## Before the fix
 
-![Before fix: network returns insufficient_permissions and the legacy embedded API exposes no typed app code](https://github.com/user-attachments/assets/68c733a0-cf36-48fa-ae8e-912d846b09c6)
+![Before fix: network returns insufficient_permissions and the legacy embedded API exposes no typed app code](https://github.com/user-attachments/assets/bd382343-1fc7-4b5c-bf72-9da611066313)
 
 The blocked brokered authorization request returned HTTP 403 with service code
 `insufficient_permissions`. The legacy `initEmbeddedAuth()` path did not expose
@@ -27,7 +27,7 @@ a useful typed application error.
 
 ## After the fix
 
-![After fix: network and embedded result expose ArtifactBlockedByAdmin](https://github.com/user-attachments/assets/843f53e3-cd5a-415c-a11a-e6d24b5bdd74)
+![After fix: network and embedded result expose ArtifactBlockedByAdmin](https://github.com/user-attachments/assets/a845bdc4-129e-42a4-aac0-bce1213ad4ae)
 
 The same blocked request returned HTTP 403 with service code
 `ArtifactBlockedByAdmin`. `initEmbeddedAuthWithResult()` returned:
